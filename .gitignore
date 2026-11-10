@@ -1,0 +1,6 @@
+.dev.vars
+.e2e-state/
+node_modules/
+dist/
+test-results/
+.wrangler/

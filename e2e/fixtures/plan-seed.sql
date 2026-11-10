@@ -1,0 +1,16 @@
+INSERT INTO resources VALUES ('r1','Anna Test','employee','Obermonteur',1,NULL);
+INSERT INTO resources VALUES ('r2','Ben Beispiel','employee','Monteur',2,NULL);
+INSERT INTO resources VALUES ('r3','Cem Muster','employee','Monteur',3,NULL);
+INSERT INTO resources VALUES ('x1','Altfall Archiv','employee','Monteur',4,'2026-01-01');
+INSERT INTO projects VALUES ('plan1','Testhaus Nord','r1',NULL);
+INSERT INTO punches VALUES ('p1','r2','plan1','2027-02-01T06:00:00Z','2027-02-01T15:00:00Z',30);
+INSERT INTO punches VALUES ('p2','r2','plan1','2027-02-02T06:00:00Z','2027-02-02T15:00:00Z',30);
+INSERT INTO punches VALUES ('p3','r2','plan1','2027-02-03T06:00:00Z','2027-02-03T15:00:00Z',30);
+INSERT INTO punches VALUES ('p4','r2','plan1','2027-02-04T06:00:00Z','2027-02-04T15:00:00Z',30);
+INSERT INTO punches VALUES ('p5','r2','plan1','2027-02-05T06:00:00Z','2027-02-05T15:00:00Z',30);
+INSERT INTO punches VALUES ('p6','r2','plan1','2027-02-06T05:00:00Z','2027-02-06T09:00:00Z',0);
+INSERT INTO punches VALUES ('p7','r1',NULL,'2027-02-08T05:00:00Z','2027-02-08T06:00:00Z',0);
+INSERT INTO punches VALUES ('p8','r1','plan1','2027-02-08T06:00:00Z','2027-02-08T15:00:00Z',60);
+INSERT INTO assignments VALUES ('a1','r3',NULL,'2027-02-08','sick');
+INSERT INTO assignments VALUES ('a2','r3',NULL,'2027-02-09','vacation');
+INSERT INTO day_entries VALUES ('r2','2027-02-02','{"kmOut":"60","kmBack":"60"}');
