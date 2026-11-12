@@ -32,7 +32,7 @@ test('negative bonus is carried, never taken from wages', () => {
   assert.equal(row.payout, 0);
 });
 
-test('NU bonus goes to the foreman and needs a cost rate', () => {
+test('NU bonus goes to the foreman by default', () => {
   const t = { ...terms, foreman: true, foremanCostCents: 3000 };
   const nu = [{ projectId: 'p', projectName: 'NU Haus', foremanId: 'r1', revenue: 500000, cost: 300000, approved: true }];
   const ok = computeMonth(base({ terms: { r1: t }, nu, foremanMinutes: { r1: { p: 600 } } }));
@@ -40,8 +40,8 @@ test('NU bonus goes to the foreman and needs a cost rate', () => {
   assert.equal(ok.nu[0].bonus, 17000);
   assert.equal(ok.rows[0].lines.find((l) => l.code === 'NU')!.cents, 17000);
   const noRate = computeMonth(base({ terms: { r1: terms }, nu }));
-  assert.equal(noRate.nu[0].bonus, 0);
-  assert.match(noRate.warnings.join(), /Kostensatz/);
+  assert.equal(noRate.nu[0].bonus, 20000); // no cost rate: profit 2000, bonus 200
+  assert.ok(!/Kostensatz/.test(noRate.warnings.join()));
 });
 
 test('missing holidays warn, external week difference is reported', () => {
@@ -55,4 +55,11 @@ test('weekend absence is not paid as a workday', () => {
   const res = computeMonth(base({ days: { r1: [sat] } }));
   assert.equal(res.rows[0].lines.find((l) => l.code === 'ABW'), undefined);
   assert.equal(res.rows[0].metrics.absentDays, 0);
+});
+
+test('NU bonus can be assigned and split between two people', () => {
+  const nu = [{ projectId: 'p', projectName: 'NU Haus', foremanId: null, revenue: 500000, cost: 300000, approved: true }];
+  const r = computeMonth(base({ terms: { r1: terms, r2: { ...terms, name: 'Zwei' } }, nu, nuAssign: { p: { firstId: 'r1', secondId: 'r2', secondPct: 30 } } }));
+  assert.equal(r.rows.find((x) => x.resourceId === 'r1')!.lines.find((l) => l.code === 'NU')!.cents, 14000);
+  assert.equal(r.rows.find((x) => x.resourceId === 'r2')!.lines.find((l) => l.code === 'NU')!.cents, 6000);
 });

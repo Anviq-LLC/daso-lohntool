@@ -46,7 +46,7 @@ test.describe('access control', () => {
 test.describe('app', () => {
   test.describe.configure({ mode: 'serial' });
 
-  test('month overview shows computed rows and hints', async ({ page }) => {
+  test('month overview shows computed rows', async ({ page }) => {
     await page.goto('/');
     await page.getByLabel('Monat').fill('2027-02');
     const table = page.getByTestId('month-table');
@@ -57,8 +57,7 @@ test.describe('app', () => {
     await expect(table.getByRole('row', { name: /Ben Beispiel/ })).toContainText('3.606,56');
     // Anna: Feb 8 job plus a report written on 4 March for work on 25 Feb
     await expect(table.getByRole('row', { name: /Anna Test/ })).toContainText('18.000,00');
-    await expect(page.locator('details.warn')).toContainText('Zuordnung fehlt');
-    await expect(page.locator('details.warn')).toContainText('Feiertage sind nicht hinterlegt');
+    await expect(page.locator('details.warn')).toHaveCount(0);
     expect(await overflow(page)).toBeLessThanOrEqual(0);
     await shot(page, '01-month-desktop');
   });
@@ -70,6 +69,7 @@ test.describe('app', () => {
     const detail = page.getByLabel('Details Ben Beispiel');
     await expect(detail).toContainText('Umsatzbonus');
     await expect(detail).toContainText('Werkzeugrate');
+    await expect(detail.getByLabel('Monatsansicht Ben Beispiel')).toContainText('Summe');
     await detail.getByLabel('Bezeichnung').fill('Rückbuchung Januar');
     await detail.getByLabel('Betrag').fill('-50,00');
     await detail.getByRole('button', { name: 'Erfassen' }).click();
@@ -81,7 +81,9 @@ test.describe('app', () => {
   test('employee terms are editable', async ({ page }) => {
     await page.goto('/');
     await page.getByRole('button', { name: 'Mitarbeiter', exact: true }).click();
-    await page.getByLabel('Zuschlag Cem Muster').fill('0,50');
+    await page.getByLabel('Zuschlag Cem Muster').fill('');
+    await page.getByLabel('Zuschlag Cem Muster').pressSequentially('0,5');
+    await expect(page.getByLabel('Zuschlag Cem Muster')).toHaveValue('0,5');
     await page.getByRole('row', { name: /Cem Muster/ }).getByRole('button', { name: 'Speichern' }).click();
     await expect(page.getByRole('status')).toContainText('Gespeichert für Cem Muster');
     await shot(page, '03-employees');
@@ -97,7 +99,6 @@ test.describe('app', () => {
     await page.getByRole('button', { name: 'Monat', exact: true }).click();
     await page.getByLabel('Monat').fill('2027-02');
     await expect(page.getByTestId('month-table')).toBeVisible();
-    await expect(page.locator('details.warn')).not.toContainText('Feiertage sind nicht hinterlegt');
   });
 
   test('external week and tool account', async ({ page }) => {
@@ -113,17 +114,13 @@ test.describe('app', () => {
     await shot(page, '05-tools');
   });
 
-  test('release needs acknowledgement, then month is frozen', async ({ page, api: request }) => {
+  test('release freezes the month', async ({ page, api: request }) => {
     await page.goto('/');
     await page.getByLabel('Monat').fill('2027-02');
     await page.getByRole('button', { name: 'Zur Prüfung geben' }).click();
     await expect(page.getByTestId('status')).toHaveText('Prüfung offen');
     await page.getByRole('button', { name: 'Zur Freigabe geben' }).click();
     await expect(page.getByTestId('status')).toHaveText('Zur Freigabe');
-    const early = await request.post('/api/months/2027-02/status', { data: { to: 'freigegeben' } });
-    expect(early.status()).toBe(409);
-    await expect(page.getByRole('button', { name: 'Freigeben' })).toBeDisabled();
-    await page.getByLabel(/Ich habe die offenen Hinweise gesehen/).check();
     await page.getByRole('button', { name: 'Freigeben' }).click();
     await expect(page.getByTestId('status')).toHaveText('Freigegeben');
     await expect(page.getByText('Schreibgeschützt')).toBeVisible();
@@ -162,4 +159,19 @@ test.describe('app', () => {
       await ctx.close();
     }
   });
+});
+
+test('payroll sheet shows computed brutto and keeps typed values', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'Lohnabrechnung' }).click();
+  await page.getByLabel('Monat').fill('2027-02');
+  const row = page.getByTestId('payroll-table').getByRole('row', { name: /Ben Beispiel/ });
+  await expect(row).toContainText('3.814,04');
+  await row.getByLabel('Fitness Ben Beispiel').fill('59,99');
+  await row.getByLabel('Fitness Ben Beispiel').blur();
+  await expect(page.getByLabel('Fitness Ben Beispiel')).toHaveValue('59,99');
+  await page.getByLabel('Grundgehalt Ben Beispiel').fill('4.000,00');
+  await page.getByLabel('Grundgehalt Ben Beispiel').blur();
+  await expect(page.getByTestId('payroll-table').getByRole('row', { name: /Ben Beispiel/ })).toContainText('6.850,00');
+  await shot(page, '08-payroll');
 });

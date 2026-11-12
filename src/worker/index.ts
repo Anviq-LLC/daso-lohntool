@@ -2,6 +2,7 @@ import { HttpError, identify, readOnly, type Env, type Identity } from './auth.t
 import { liveMonth, loadSettings, termsFor, DEFAULT_TERMS } from './month.ts';
 import type { MonthResult } from '../calc/month.ts';
 import { toCsv } from './export.ts';
+import { KEYS } from '../calc/payroll.ts';
 
 const SECURITY = {
   'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer',
@@ -63,7 +64,6 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
       await env.DB.prepare('INSERT INTO months (month, status, updated_at) VALUES (?,?,?) ON CONFLICT(month) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at').bind(mo, b.to, now).run();
     } else if (to === 3 && from === 2) {
       const live = await liveMonth(env, mo);
-      if ((live.result.warnings.length || live.unchecked.length) && b.ack !== true) throw new HttpError(409, 'Offene Hinweise müssen bestätigt werden.');
       const snapshot = JSON.stringify({ result: live.result, unchecked: live.unchecked, warnings: live.result.warnings });
       const stmts = [env.DB.prepare('INSERT INTO months (month, status, snapshot, released_by, released_at, updated_at) VALUES (?,?,?,?,?,?) ON CONFLICT(month) DO UPDATE SET status = excluded.status, snapshot = excluded.snapshot, released_by = excluded.released_by, released_at = excluded.released_at, updated_at = excluded.updated_at').bind(mo, 'freigegeben', snapshot, who.email, now, now)];
       for (const r of live.result.rows) {
@@ -124,7 +124,9 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
         foremanCostCents: t.foremanCostCents === null || t.foremanCostCents === undefined ? null : cents(t.foremanCostCents),
         fixedSalaryCents: t.fixedSalaryCents === null || t.fixedSalaryCents === undefined ? null : cents(t.fixedSalaryCents),
         bonus: !!t.bonus, saturday: !!t.saturday,
+        sub: !!t.sub, subRateCents: t.subRateCents === null || t.subRateCents === undefined ? null : cents(t.subRateCents),
       };
+      if (clean.sub && clean.subRateCents === null) throw new HttpError(400, 'SUB braucht einen Stundensatz.');
       await env.DB.prepare('INSERT INTO employee_terms (resource_id, valid_from, data) VALUES (?,?,?) ON CONFLICT(resource_id, valid_from) DO UPDATE SET data = excluded.data').bind(text(b.resourceId, 80), b.validFrom, JSON.stringify(clean)).run();
       await log(env, who, 'Konditionen geändert', `${b.resourceId} ab ${b.validFrom}`);
       return reply({ ok: true });
@@ -175,6 +177,34 @@ async function route(request: Request, env: Env, url: URL): Promise<Response> {
     const b = await body<{ month: string; projectId: string; cents: number }>();
     await assertOpen(env, month(b.month));
     await env.DB.prepare('INSERT INTO nu_costs (project_id, month, cents) VALUES (?,?,?) ON CONFLICT(project_id, month) DO UPDATE SET cents = excluded.cents').bind(text(b.projectId, 80), b.month, cents(b.cents)).run();
+    return reply({ ok: true });
+  }
+  if (p === '/api/nu-assign' && method === 'PUT') {
+    const b = await body<{ month: string; projectId: string; firstId: string | null; secondId: string | null; secondPct: number }>();
+    await assertOpen(env, month(b.month));
+    const pct = Number.isInteger(b.secondPct) && b.secondPct >= 0 && b.secondPct <= 100 ? b.secondPct : (() => { throw new HttpError(400, 'Anteil 0 bis 100 Prozent.'); })();
+    const id = (v: unknown) => (v ? text(v, 80) : null);
+    await env.DB.prepare('INSERT INTO nu_assign (project_id, month, first_id, second_id, second_pct) VALUES (?,?,?,?,?) ON CONFLICT(project_id, month) DO UPDATE SET first_id = excluded.first_id, second_id = excluded.second_id, second_pct = excluded.second_pct').bind(text(b.projectId, 80), b.month, id(b.firstId), id(b.secondId), pct).run();
+    await log(env, who, 'NU-Bonus Zuordnung', `${b.month} ${b.projectId}`);
+    return reply({ ok: true });
+  }
+  if ((m = p.match(/^\/api\/payroll\/([\d-]+)$/)) && method === 'GET') {
+    const mo = month(m[1]);
+    const rows = (await env.DB.prepare('SELECT resource_id, data FROM payroll_inputs WHERE month = ?').bind(mo).all<{ resource_id: string; data: string }>()).results;
+    return reply(Object.fromEntries(rows.map((r) => [r.resource_id, JSON.parse(r.data)])));
+  }
+  if (p === '/api/payroll' && method === 'PUT') {
+    const b = await body<{ month: string; resourceId: string; key: string; value: number | string | null }>();
+    const mo = month(b.month);
+    await assertOpen(env, mo);
+    const rid = text(b.resourceId, 80), notes = rid === '_notes';
+    if (!(notes ? ['unpaid', 'sick'] : KEYS).includes(b.key)) throw new HttpError(400, 'Unbekanntes Feld.');
+    if (b.value !== null && (notes ? typeof b.value !== 'string' || b.value.length > 1000 : !Number.isFinite(b.value))) throw new HttpError(400, 'Ungültiger Wert.');
+    const cur = await env.DB.prepare('SELECT data FROM payroll_inputs WHERE month = ? AND resource_id = ?').bind(mo, rid).first<{ data: string }>();
+    const data = cur ? JSON.parse(cur.data) : {};
+    if (b.value === null || b.value === '') delete data[b.key]; else data[b.key] = b.value;
+    await env.DB.prepare('INSERT INTO payroll_inputs (month, resource_id, data) VALUES (?,?,?) ON CONFLICT(month, resource_id) DO UPDATE SET data = excluded.data').bind(mo, rid, JSON.stringify(data)).run();
+    await log(env, who, 'Lohnabrechnung', `${mo} ${rid} ${b.key}`);
     return reply({ ok: true });
   }
   if (p === '/api/roles') {

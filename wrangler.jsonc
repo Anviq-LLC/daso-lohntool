@@ -6,6 +6,10 @@
   "compatibility_flags": ["nodejs_compat"],
   "preview_urls": false,
   "observability": { "enabled": true },
+  "vars": {
+    "CF_ACCESS_TEAM_DOMAIN": "dasoluft.cloudflareaccess.com",
+    "CF_ACCESS_AUD": "dfad2cfa91680d5746bc80f323f87142193f238f30520ce520f1a9c785764c44"
+  },
   "assets": { "directory": "dist", "binding": "ASSETS", "not_found_handling": "single-page-application", "run_worker_first": true },
   "d1_databases": [
     { "binding": "DB", "database_name": "daso-lohntool", "database_id": "ef104d2a-1a3e-4774-84d9-5d3851b71bd1", "migrations_dir": "migrations" },

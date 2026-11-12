@@ -1,7 +1,7 @@
 // Fixed Lohnart names, shared by table, detail and export so a free-text label never becomes a column title.
 export const LABELS: Record<string, string> = {
   FIX: 'Festgehalt', LOHN: 'Stundenlohn', ZUS_NIGHT: 'Nachtzuschlag', ZUS_SUNDAY: 'Sonntagszuschlag', ZUS_HOLIDAY: 'Feiertagszuschlag',
-  ABW: 'Urlaub, Krank, Feiertag', ANF: 'Anfahrt Obermonteur', UMS: 'Umsatzbonus', SAM: 'Samstagsbonus', NU: 'NU-Bonus',
+  SUBH: 'SUB Stunden', SUBA: 'SUB Anfahrt', ABW: 'Urlaub, Krank, Feiertag', ANF: 'Anfahrt Obermonteur', UMS: 'Umsatzbonus', SAM: 'Samstagsbonus', NU: 'NU-Bonus',
   KORREKTUR: 'Bonuskorrektur', PRAEMIE: 'Prämie', AUSLAGEN: 'Auslagenerstattung', NOTFALL: 'Notfall-Unterstützung', SONSTIGES: 'Sonstiges',
   VORTRAG: 'Übertrag Vormonat', WZG: 'Werkzeugrate', SALDO: 'Ausgleich negativer Bonus',
 };

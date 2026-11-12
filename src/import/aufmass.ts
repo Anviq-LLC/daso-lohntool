@@ -77,7 +77,7 @@ export function importAufmass(
         for (const share of employeeShares(sub, factor)) {
           const id = planOf.get(share.employeeId);
           if (!id) { missing.add(share.name); continue; }
-          out.revenue.push({ resourceId: id, day: dayKey, projectId: proj.id, cents: share.employee, approved: sub.review === 'approved' });
+          out.revenue.push({ resourceId: id, day: dayKey, projectId: proj.id, label, cents: share.employee, approved: sub.review === 'approved' });
         }
         if (!personal) out.warnings.push(`${label} ${dayKey}: vorläufig gleich verteilt.`);
       }

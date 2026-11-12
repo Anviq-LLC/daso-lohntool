@@ -1,11 +1,11 @@
 // Loads one month from the three databases and runs the calculation.
-import { computeMonth, DEFAULT_SETTINGS, type Adjustment, type ExternalWeek, type MonthResult, type Settings, type Terms, type ToolAccount } from '../calc/month.ts';
+import { computeMonth, DEFAULT_SETTINGS, type Adjustment, type ExternalWeek, type NuAssign, type MonthResult, type Settings, type Terms, type ToolAccount } from '../calc/month.ts';
 import { computeDay, daysOfMonth, berlinDay, type Assignment, type DayEntry, type Punch, type Day } from '../import/plan.ts';
 import { importAufmass, parseRecords } from '../import/aufmass.ts';
 import type { Env } from './auth.ts';
 
 export const DEFAULT_TERMS = (name: string): Terms => ({
-  name, lohngruppe: null, surchargeCents: 0, foreman: false, foremanCostCents: null, fixedSalaryCents: null, bonus: true, saturday: true,
+  name, lohngruppe: null, surchargeCents: 0, foreman: false, foremanCostCents: null, fixedSalaryCents: null, bonus: true, saturday: true, sub: false, subRateCents: null,
 });
 
 export async function loadSettings(env: Env): Promise<Settings & { equalSplit: boolean }> {
@@ -90,11 +90,14 @@ export async function liveMonth(env: Env, month: string) {
   const external = (await env.DB.prepare('SELECT * FROM external_weeks WHERE month = ? ORDER BY kw').bind(month).all<{ id: string; kw: string; label: string; minutes: number; invoiced_cents: number; rate_cents: number }>()).results
     .map((e): ExternalWeek => ({ id: e.id, kw: e.kw, label: e.label, minutes: e.minutes, invoiced: e.invoiced_cents, ratePerHour: e.rate_cents }));
   const otherNuCosts = Object.fromEntries((await env.DB.prepare('SELECT project_id, cents FROM nu_costs WHERE month = ?').bind(month).all<{ project_id: string; cents: number }>()).results.map((r) => [r.project_id, r.cents]));
+  const nuAssign: Record<string, NuAssign> = {};
+  for (const a of (await env.DB.prepare('SELECT project_id, first_id, second_id, second_pct FROM nu_assign WHERE month = ?').bind(month).all<{ project_id: string; first_id: string | null; second_id: string | null; second_pct: number }>()).results)
+    nuAssign[a.project_id] = { firstId: a.first_id, secondId: a.second_id, secondPct: a.second_pct };
   const prev = await env.DB.prepare('SELECT snapshot FROM months WHERE month = ?').bind(prevMonth(month)).first<{ snapshot: string | null }>();
   const carryIn: Record<string, number> = {};
   if (prev?.snapshot) for (const r of (JSON.parse(prev.snapshot) as { result: MonthResult }).result.rows) if (r.carryOut) carryIn[r.resourceId] = r.carryOut;
 
-  const result = computeMonth({ month, settings, terms, days, revenue, nu: imp.nu, foremanMinutes, otherNuCosts, adjustments: adj, tools, external, carryIn, importWarnings: warnings });
+  const result = computeMonth({ month, settings, terms, days, revenue, nu: imp.nu, foremanMinutes, otherNuCosts, nuAssign, adjustments: adj, tools, external, carryIn, importWarnings: warnings });
   // Employees without any hours, terms or revenue in the month only add noise.
   result.rows = result.rows.filter((r) => r.metrics.workMinutes || r.metrics.revenue || r.lines.length || terms[r.resourceId].lohngruppe || terms[r.resourceId].fixedSalaryCents !== null);
   return { result, unchecked, roles: Object.fromEntries(res.results.map((r) => [r.id, r.role])), employees: res.results };

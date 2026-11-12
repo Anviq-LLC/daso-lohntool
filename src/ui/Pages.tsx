@@ -1,21 +1,23 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, eur, fromCents, toCents, type MonthView } from './api.ts';
 import type { Settings, Terms } from '../calc/month.ts';
+import { MoneyInput } from './MoneyInput.tsx';
 
 type TermsRow = Terms & { id: string };
 
 export function EmployeesPage({ month }: { month: string }) {
   const [rows, setRows] = useState<TermsRow[]>([]);
+  const [rates, setRates] = useState<Record<number, number>>({});
   const [from, setFrom] = useState(month + '-01');
   const [msg, setMsg] = useState('');
   const load = useCallback(() => api<TermsRow[]>('/api/terms').then(setRows).catch((e) => setMsg(e.message)), []);
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { load(); api<Settings>('/api/settings').then((s) => setRates(s.rates)).catch(() => {}); }, [load]);
   useEffect(() => setFrom(month + '-01'), [month]);
   const set = (id: string, patch: Partial<Terms>) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, ...patch } : r)));
   const save = async (r: TermsRow) => {
     setMsg('');
     try {
-      await api('/api/terms', 'PUT', { resourceId: r.id, validFrom: from, terms: r });
+      await api('/api/terms', 'PUT', { resourceId: r.id, validFrom: from, terms: { ...r, bonus: true, saturday: true, fixedSalaryCents: null, sub: !!r.sub, subRateCents: r.sub ? r.subRateCents ?? null : null } });
       setMsg(`Gespeichert für ${r.name}, gültig ab ${from.split('-').reverse().join('.')}.`);
     } catch (e) { setMsg((e as Error).message); }
   };
@@ -29,19 +31,19 @@ export function EmployeesPage({ month }: { month: string }) {
       {msg && <p role="status" className="muted">{msg}</p>}
       <div className="scroll">
         <table className="grid">
-          <thead><tr><th className="sticky">Name</th><th>Lohngruppe</th><th>Lohnzuschlag €/h</th><th>Festgehalt €</th><th>Obermonteur</th><th>Kostensatz €/h</th><th>Bonus</th><th>Samstag</th><th /></tr></thead>
+          <thead><tr><th className="sticky">Name</th><th>Lohngruppe</th><th className="num">Stundensatz €/h</th><th>Zuschlag €/h</th><th>Obermonteur</th><th>Kostensatz €/h</th><th /></tr></thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.id}>
                 <th scope="row" className="sticky">{r.name}</th>
-                <td><select aria-label={`Lohngruppe ${r.name}`} value={r.lohngruppe ?? ''} onChange={(e) => set(r.id, { lohngruppe: e.target.value ? Number(e.target.value) : null })}>
-                  <option value="">-</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>LG {n}</option>)}</select></td>
-                <td><input aria-label={`Zuschlag ${r.name}`} inputMode="decimal" value={fromCents(r.surchargeCents)} onChange={(e) => set(r.id, { surchargeCents: toCents(e.target.value) ?? 0 })} /></td>
-                <td><input aria-label={`Festgehalt ${r.name}`} inputMode="decimal" value={fromCents(r.fixedSalaryCents)} onChange={(e) => set(r.id, { fixedSalaryCents: toCents(e.target.value) })} /></td>
+                <td><select aria-label={`Lohngruppe ${r.name}`} value={r.sub ? 'SUB' : r.lohngruppe ?? ''} onChange={(e) => { const v = e.target.value; set(r.id, v === 'SUB' ? { sub: true, lohngruppe: null } : { sub: false, lohngruppe: v ? Number(v) : null }); }}>
+                  <option value="">-</option>{[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => <option key={n} value={n}>LG {n}</option>)}<option value="SUB">SUB</option></select></td>
+                <td className="num">{r.sub
+                  ? <MoneyInput aria-label={`Stundensatz ${r.name}`} placeholder="z. B. 40,00" cents={r.subRateCents ?? null} onCommit={(c) => set(r.id, { subRateCents: c })} />
+                  : r.lohngruppe ? <span aria-label={`Satz ${r.name}`}>{eur((rates[r.lohngruppe] ?? 0) + r.surchargeCents)}</span> : '-'}</td>
+                <td><MoneyInput aria-label={`Zuschlag ${r.name}`} disabled={!!r.sub} cents={r.surchargeCents} onCommit={(c) => set(r.id, { surchargeCents: c ?? 0 })} /></td>
                 <td><input type="checkbox" aria-label={`Obermonteur ${r.name}`} checked={r.foreman} onChange={(e) => set(r.id, { foreman: e.target.checked })} /></td>
-                <td><input aria-label={`Kostensatz ${r.name}`} inputMode="decimal" disabled={!r.foreman} value={fromCents(r.foremanCostCents)} onChange={(e) => set(r.id, { foremanCostCents: toCents(e.target.value) })} /></td>
-                <td><input type="checkbox" aria-label={`Bonus ${r.name}`} checked={r.bonus} onChange={(e) => set(r.id, { bonus: e.target.checked })} /></td>
-                <td><input type="checkbox" aria-label={`Samstagsbonus ${r.name}`} checked={r.saturday} onChange={(e) => set(r.id, { saturday: e.target.checked })} /></td>
+                <td><MoneyInput aria-label={`Kostensatz ${r.name}`} disabled={!r.foreman} cents={r.foremanCostCents} onCommit={(c) => set(r.id, { foremanCostCents: c })} /></td>
                 <td><button onClick={() => save(r)}>Speichern</button></td>
               </tr>
             ))}
@@ -77,11 +79,11 @@ export function SettingsPage({ role }: { role: string }) {
       <div className="cols">
         <fieldset><legend>Lohngruppen (€/h)</legend>
           {Object.keys(s.rates).map((g) => (
-            <label key={g}>LG {g}<input inputMode="decimal" aria-label={`Satz LG ${g}`} value={fromCents(s.rates[Number(g)])} onChange={(e) => setS({ ...s, rates: { ...s.rates, [g]: toCents(e.target.value) ?? 0 } })} /></label>
+            <label key={g}>LG {g}<MoneyInput aria-label={`Satz LG ${g}`} cents={s.rates[Number(g)]} onCommit={(c) => setS({ ...s, rates: { ...s.rates, [g]: c ?? 0 } })} /></label>
           ))}
         </fieldset>
         <fieldset><legend>Bonus und Zuschläge</legend>
-          <label>Ersatzumsatz je Monat €<input inputMode="decimal" value={fromCents(s.absenceThreshold)} onChange={(e) => setS({ ...s, absenceThreshold: toCents(e.target.value) ?? 0 })} /></label>
+          <label>Ersatzumsatz je Monat €<MoneyInput cents={s.absenceThreshold} onCommit={(c) => setS({ ...s, absenceThreshold: c ?? 0 })} /></label>
           <label>Samstagsanteil %<input inputMode="numeric" value={s.saturdayRate} onChange={(e) => setS({ ...s, saturdayRate: Number(e.target.value) || 0 })} /></label>
           <label>Nachtzuschlag 20 bis 6 Uhr %<input inputMode="numeric" value={s.nightPct} onChange={(e) => setS({ ...s, nightPct: Number(e.target.value) || 0 })} /></label>
           <label>Sonntag %<input inputMode="numeric" value={s.sundayPct} onChange={(e) => setS({ ...s, sundayPct: Number(e.target.value) || 0 })} /></label>

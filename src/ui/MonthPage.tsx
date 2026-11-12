@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { api, eur, hours, toCents, type MonthView } from './api.ts';
 import { LABELS, sortCodes } from '../calc/labels.ts';
 
+const WEEKDAY = ['So', 'Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa'];
 const STATUS: Record<string, string> = { offen: 'In Berechnung', pruefung: 'Prüfung offen', freigabe: 'Zur Freigabe', freigegeben: 'Freigegeben', abgeschlossen: 'Abgeschlossen' };
 const NEXT: Record<string, [string, string] | undefined> = {
   offen: ['pruefung', 'Zur Prüfung geben'], pruefung: ['freigabe', 'Zur Freigabe geben'], freigabe: ['freigegeben', 'Freigeben'], freigegeben: ['abgeschlossen', 'Abschließen'],
@@ -12,23 +13,21 @@ export function MonthPage({ month, setMonth, role }: { month: string; setMonth: 
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [open, setOpen] = useState<string | null>(null);
-  const [ack, setAck] = useState(false);
 
   const load = useCallback(async () => {
     setBusy(true); setError('');
     try { setView(await api<MonthView>(`/api/months/${month}`)); } catch (e) { setError((e as Error).message); setView(null); } finally { setBusy(false); }
   }, [month]);
-  useEffect(() => { setAck(false); setOpen(null); load(); }, [load]);
+  useEffect(() => { setOpen(null); load(); }, [load]);
 
   const move = async (to: string, extra: object = {}) => {
-    try { await api(`/api/months/${month}/status`, 'POST', { to, ack, ...extra }); await load(); } catch (e) { setError((e as Error).message); }
+    try { await api(`/api/months/${month}/status`, 'POST', { to, ...extra }); await load(); } catch (e) { setError((e as Error).message); }
   };
   const [reopenReason, setReopenReason] = useState<string | null>(null);
 
   const codes = view ? sortCodes(view.result.rows.flatMap((r) => r.lines.map((l) => l.code))).map((c) => [c, LABELS[c] ?? c] as const) : [];
   const sel = view?.result.rows.find((r) => r.resourceId === open);
-  const warnings = view?.result.warnings || [];
-  const needAck = !!view && !view.frozen && view.status === 'freigabe' && (warnings.length > 0 || view.unchecked.length > 0);
+  const subs = view?.result.rows.filter((r) => r.weeks) || [];
   const next = view ? NEXT[view.status] : undefined;
 
   return (
@@ -38,7 +37,7 @@ export function MonthPage({ month, setMonth, role }: { month: string; setMonth: 
         {view && <span className={`chip s-${view.status}`} data-testid="status">{STATUS[view.status]}</span>}
         {view?.frozen && <span className="muted">Schreibgeschützt, freigegeben von {view.releasedBy}</span>}
         <span className="spacer" />
-        {view && next && <button className="primary" disabled={next[0] === 'freigegeben' && needAck && !ack} onClick={() => move(next[0])}>{next[1]}</button>}
+        {view && next && <button className="primary" onClick={() => move(next[0])}>{next[1]}</button>}
         {view?.status === 'freigegeben' && role === 'gf' && reopenReason === null && <button onClick={() => setReopenReason('')}>Freigabe zurücknehmen</button>}
         {view?.status === 'freigegeben' && role === 'gf' && reopenReason !== null && (
           <form className="inline" aria-label="Freigabe zurücknehmen" onSubmit={(e) => { e.preventDefault(); move('pruefung', { reason: reopenReason }); setReopenReason(null); }}>
@@ -53,16 +52,6 @@ export function MonthPage({ month, setMonth, role }: { month: string; setMonth: 
       {busy && <p className="muted">Berechne ...</p>}
       {view && (
         <>
-          {needAck && (
-            <label className="ack"><input type="checkbox" checked={ack} onChange={(e) => setAck(e.target.checked)} /> Ich habe die offenen Hinweise gesehen und gebe den Monat trotzdem frei.</label>
-          )}
-          {(warnings.length > 0 || view.unchecked.length > 0) && (
-            <details className="warn" open={!view.frozen}>
-              <summary>{warnings.length} Hinweise, {view.unchecked.length} ungeprüfte Tage/Projekte</summary>
-              <ul>{warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>
-              {view.unchecked.length > 0 && <><b>Noch nicht vom Kunden geprüft:</b><ul>{view.unchecked.map((u, i) => <li key={i}>{u.day.split('-').reverse().join('.')} · {u.project}</li>)}</ul></>}
-            </details>
-          )}
           <div className="scroll">
             <table className="grid" data-testid="month-table">
               <thead>
@@ -98,6 +87,20 @@ export function MonthPage({ month, setMonth, role }: { month: string; setMonth: 
               )}
             </table>
           </div>
+          {subs.length > 0 && (
+            <section className="sub">
+              <h2>SUB Wochenauswertung</h2>
+              <div className="scroll"><table>
+                <thead><tr><th>Mitarbeiter</th><th>Woche</th><th className="num">Stunden</th><th className="num">Anfahrt</th><th className="num">Kosten</th></tr></thead>
+                <tbody>{subs.map((r) => (
+                  <Fragment key={r.resourceId}>
+                    {r.weeks!.map((w) => <tr key={w.kw}><td>{r.name}</td><td>{w.kw}</td><td className="num">{hours(w.workMinutes)}</td><td className="num">{hours(w.travelMinutes)}</td><td className="num">{eur(w.cents)}</td></tr>)}
+                    <tr className="strong"><td colSpan={4}>Summe {r.name}</td><td className="num">{eur(r.payout)}</td></tr>
+                  </Fragment>
+                ))}</tbody>
+              </table></div>
+            </section>
+          )}
           {sel && (
             <aside className="detail" aria-label={`Details ${sel.name}`}>
               <h2>{sel.name}</h2>
@@ -107,6 +110,26 @@ export function MonthPage({ month, setMonth, role }: { month: string; setMonth: 
                   <tr className="strong"><td colSpan={2}>Summe</td><td className="num">{eur(sel.payout)}</td></tr>
                 </tbody>
               </table>
+              {sel.calendar && (
+                <>
+                  <h3>Monatsansicht</h3>
+                  <table className="cal" aria-label={`Monatsansicht ${sel.name}`}>
+                    <thead><tr><th>Tag</th><th className="num">Stunden</th><th>Status</th><th>Projekt und Umsatz</th><th className="num">Umsatz</th></tr></thead>
+                    <tbody>
+                      {sel.calendar.filter((d) => d.workMinutes || d.revenue.length || d.absence || d.flag).map((d) => (
+                        <tr key={d.day} className={d.flag} title={d.note}>
+                          <td>{WEEKDAY[new Date(d.day + 'T00:00:00Z').getUTCDay()]} {d.day.slice(8)}.{d.day.slice(5, 7)}.</td>
+                          <td className="num">{d.workMinutes ? hours(d.workMinutes) : ''}</td>
+                          <td>{d.absence || d.note}</td>
+                          <td>{d.revenue.map((r) => r.label).join(', ')}</td>
+                          <td className="num">{d.revenue.length ? eur(d.revenue.reduce((n, r) => n + r.cents, 0)) : ''}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot><tr><td>Summe</td><td className="num">{hours(sel.calendar.reduce((n, d) => n + d.workMinutes, 0))}</td><td colSpan={2} /><td className="num">{eur(sel.calendar.reduce((n, d) => n + d.revenue.reduce((a, r) => a + r.cents, 0), 0))}</td></tr></tfoot>
+                  </table>
+                </>
+              )}
               <p className="muted">Umsatzbasis {eur(sel.metrics.revenue)} (davon Ersatzumsatz {eur(sel.metrics.replacement)}, Samstag {eur(sel.metrics.saturdayRevenue)}) · {sel.metrics.absentDays} Abwesenheitstage</p>
               {sel.warnings.length > 0 && <ul className="warnlist">{sel.warnings.map((w, i) => <li key={i}>{w}</li>)}</ul>}
               {!view.frozen && <AdjustForm month={month} resourceId={sel.resourceId} onDone={load} />}
@@ -146,25 +169,41 @@ function AdjustForm({ month, resourceId, onDone }: { month: string; resourceId: 
 
 function NuTable({ month, view, onDone, frozen }: { month: string; view: MonthView; onDone: () => void; frozen: boolean }) {
   const [costs, setCosts] = useState<Record<string, string>>({});
+  const [people, setPeople] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => { api<{ id: string; name: string }[]>('/api/terms').then(setPeople).catch(() => {}); }, []);
   const save = async (projectId: string) => {
     const c = toCents(costs[projectId] || '');
     if (c !== null) { await api('/api/nu-costs', 'PUT', { month, projectId, cents: c }); onDone(); }
   };
+  const assign = async (n: MonthView['result']['nu'][number], patch: Partial<{ firstId: string | null; secondId: string | null; secondPct: number }>) => {
+    const next = { firstId: n.firstId, secondId: n.secondId, secondPct: n.secondPct, ...patch };
+    if (!next.secondId) next.secondPct = 0;
+    await api('/api/nu-assign', 'PUT', { month, projectId: n.projectId, ...next });
+    onDone();
+  };
+  const pick = (label: string, value: string | null, onChange: (v: string | null) => void, none: string) => (
+    <select aria-label={label} disabled={frozen} value={value ?? ''} onChange={(e) => onChange(e.target.value || null)}>
+      <option value="">{none}</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
+    </select>
+  );
   return (
     <section className="nu">
       <h2>Nachunternehmer-Projekte</h2>
-      <table>
-        <thead><tr><th>Projekt</th><th className="num">Umsatz</th><th className="num">NU-Kosten</th><th className="num">Gewinn</th><th className="num">Bonus 10 %</th>{!frozen && <th>Sonstige Kosten</th>}</tr></thead>
+      <div className="scroll"><table>
+        <thead><tr><th>Projekt</th><th className="num">Umsatz</th><th className="num">NU-Kosten</th>{!frozen && <th>Sonstige Kosten</th>}<th className="num">Gewinn / Verlust</th><th className="num">Bonus 10 %</th><th>Bonus an</th><th>2. Mitarbeiter</th><th className="num">Anteil 2. MA %</th></tr></thead>
         <tbody>
           {view.result.nu.map((n) => (
             <tr key={n.projectId}>
               <td>{n.projectName}</td><td className="num">{eur(n.revenue)}</td><td className="num">{n.cost === null ? 'unvollständig' : eur(n.cost)}</td>
-              <td className="num">{n.profit === null ? '-' : eur(n.profit)}</td><td className="num">{eur(n.bonus)}</td>
               {!frozen && <td><input aria-label={`Sonstige Kosten ${n.projectName}`} inputMode="decimal" value={costs[n.projectId] ?? ''} onChange={(e) => setCosts({ ...costs, [n.projectId]: e.target.value })} onBlur={() => save(n.projectId)} /></td>}
+              <td className={'num' + ((n.profit ?? 0) < 0 ? ' neg' : '')}>{n.profit === null ? '-' : eur(n.profit)}</td><td className="num">{eur(n.bonus)}</td>
+              <td>{pick(`Bonus an ${n.projectName}`, n.firstId, (v) => assign(n, { firstId: v }), 'Niemand')}</td>
+              <td>{pick(`2. Mitarbeiter ${n.projectName}`, n.secondId, (v) => assign(n, { secondId: v }), 'Keiner')}</td>
+              <td className="num"><input aria-label={`Anteil ${n.projectName}`} inputMode="numeric" disabled={frozen || !n.secondId} defaultValue={n.secondPct} key={n.projectId + n.secondPct} onBlur={(e) => { const v = Math.round(Number(e.target.value)); if (v >= 0 && v <= 100 && v !== n.secondPct) assign(n, { secondPct: v }); }} style={{ width: 70 }} /></td>
             </tr>
           ))}
         </tbody>
-      </table>
+      </table></div>
     </section>
   );
 }

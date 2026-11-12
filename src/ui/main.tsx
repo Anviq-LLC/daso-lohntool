@@ -2,10 +2,12 @@ import { StrictMode, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { api } from './api.ts';
 import { MonthPage } from './MonthPage.tsx';
+import { PayrollPage } from './Payroll.tsx';
 import { EmployeesPage, SettingsPage, ToolsPage, AuditPage } from './Pages.tsx';
+import logo from './logo.png';
 import './style.css';
 
-const TABS = [['month', 'Monat'], ['employees', 'Mitarbeiter'], ['tools', 'Werkzeug und Extern'], ['settings', 'Einstellungen'], ['audit', 'Protokoll']] as const;
+const TABS = [['month', 'Monat'], ['payroll', 'Lohnabrechnung'], ['employees', 'Mitarbeiter'], ['tools', 'Werkzeug und Extern'], ['settings', 'Einstellungen'], ['audit', 'Protokoll']] as const;
 type Tab = (typeof TABS)[number][0];
 
 function App() {
@@ -19,7 +21,7 @@ function App() {
   return (
     <>
       <header className="bar">
-        <strong>DaSO Lohntool</strong>
+        <a className="brand" href="/" aria-label="DaSO Lohntool Startseite"><img src={logo} alt="DaSo Lüftungsbau" /><div><strong>DaSo Lüftungsbau</strong><span>Lohnvorbereitung</span></div></a>
         <nav aria-label="Bereiche">
           {TABS.map(([k, label]) => (
             <button key={k} className={tab === k ? 'tab on' : 'tab'} aria-current={tab === k} onClick={() => setTab(k)}>{label}</button>
@@ -29,6 +31,7 @@ function App() {
       </header>
       <main>
         {tab === 'month' && <MonthPage month={month} setMonth={setMonth} role={me.role} />}
+        {tab === 'payroll' && <PayrollPage month={month} setMonth={setMonth} />}
         {tab === 'employees' && <EmployeesPage month={month} />}
         {tab === 'tools' && <ToolsPage month={month} setMonth={setMonth} />}
         {tab === 'settings' && <SettingsPage role={me.role} />}

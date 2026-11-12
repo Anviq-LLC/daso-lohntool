@@ -106,3 +106,22 @@ test('CSV: fixed headers, German decimals, formula injection defused, quotes esc
   assert.ok(lines[1].includes('12,50'));
   assert.ok(lines[2].includes('"Anna; ""Test"""'));
 });
+
+test('SUB is paid by hourly rate with a weekly breakdown and no bonus', () => {
+  const d1 = computeDay('r1', '2027-02-02', [], [punch('2027-02-02T07:00:00Z', '2027-02-02T15:00:00Z')], [], new Set());
+  const d2 = computeDay('r1', '2027-02-09', [], [punch('2027-02-09T07:00:00Z', '2027-02-09T11:00:00Z')], [], new Set());
+  const res = computeMonth(base({ terms: { r1: { ...terms, sub: true, subRateCents: 4000, lohngruppe: null } }, days: { r1: [d1, d2] },
+    revenue: [{ resourceId: 'r1', day: '2027-02-10', projectId: 'p', cents: 2_000_000, approved: true }] }));
+  const row = res.rows[0];
+  assert.deepEqual(row.weeks!.map((w) => [w.kw, w.cents]), [['2027-W05', 32000], ['2027-W06', 16000]]);
+  assert.equal(row.payout, 48000);
+  assert.ok(!row.lines.some((l) => l.code === 'UMS'));
+});
+
+import { brutto, value, GROSS } from '../src/calc/payroll.ts';
+test('payroll sheet: brutto from month lines, override wins', () => {
+  const row = { lines: [{ code: 'LOHN', label: '', cents: 270000 }, { code: 'UMS', label: '', cents: 24358 }, { code: 'NU', label: '', cents: 45000 }], spesen: 39200, km: 0 } as never;
+  assert.equal(brutto(row, {}), 339358);
+  assert.equal(brutto(row, { grundgehalt: 280000 }), 349358);
+  assert.equal(value(GROSS[0], row, {}), 270000);
+});
